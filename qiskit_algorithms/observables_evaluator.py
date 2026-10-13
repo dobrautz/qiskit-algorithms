@@ -114,7 +114,7 @@ def estimate_observables(
                 split_means.append(0.0)
         # recombine the Hermitian and anti-Hermitian parts; only the expectation values of
         # non-Hermitian observables are complex
-        all_means = [
+        all_means: list[Any] = [
             (
                 np.float64(np.real(split_means[i]))
                 if position is None

@@ -183,7 +183,8 @@ class ImaginaryMcLachlanPrinciple(ImaginaryVariationalPrinciple):
         original_type = getattr(self.gradient, "derivative_type", DerivativeType.REAL)
         if derivative_type != original_type:
             try:
-                self.gradient.derivative_type = derivative_type
+                # the gradients supporting the imaginary part define a setter
+                self.gradient.derivative_type = derivative_type  # type: ignore[misc]
             except AttributeError as exc:
                 raise AlgorithmError(
                     "Non-Hermitian Hamiltonians require a gradient that supports "
@@ -201,7 +202,7 @@ class ImaginaryMcLachlanPrinciple(ImaginaryVariationalPrinciple):
             raise AlgorithmError("The gradient primitive job failed!") from exc
         finally:
             if derivative_type != original_type:
-                self.gradient.derivative_type = original_type
+                self.gradient.derivative_type = original_type  # type: ignore[misc]
 
     @staticmethod
     def _validate_grad_settings(gradient):
