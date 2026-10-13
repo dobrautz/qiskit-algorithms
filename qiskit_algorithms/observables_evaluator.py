@@ -25,6 +25,7 @@ from qiskit.quantum_info.operators.base_operator import BaseOperator
 
 from .exceptions import AlgorithmError
 from .custom_types import ListOrDict
+from .utils.hermitian_decomposition import hermitian_decomposition
 
 
 # TODO: make estimate_observables accept EstimatorPubLike inputs
@@ -39,6 +40,11 @@ def estimate_observables(
     Accepts a sequence of operators and calculates their expectation values - means
     and metadata. They are calculated with respect to a quantum state provided. A user
     can optionally provide a threshold value which filters mean values falling below the threshold.
+
+    Non-Hermitian operators, i.e. operators whose simplified Pauli representation has complex
+    coefficients, are supported by evaluating their Hermitian and anti-Hermitian parts separately
+    (see :func:`~qiskit_algorithms.utils.hermitian_decomposition`). Their expectation values are
+    complex.
 
     Args:
         estimator: An estimator primitive used for calculations.
@@ -63,30 +69,61 @@ def estimate_observables(
         observables_list = observables
 
     if len(observables_list) > 0:
-        observables_list, mask = _handle_zero_ops(observables_list)
-        parameter_values_: Sequence[float] | None = parameter_values
-        try:
-            estimator_job = estimator.run([(quantum_state, observables_list, parameter_values_)])
-            estimator_result = estimator_job.result()[0]
-            expectation_values = estimator_result.data.evs
-        except Exception as exc:
-            raise AlgorithmError("The primitive job failed!") from exc
+        # split non-Hermitian observables into their Hermitian and anti-Hermitian parts; the
+        # latter are appended after all Hermitian parts
+        hermitian_parts: list[BaseOperator] = []
+        anti_hermitian_parts: list[BaseOperator] = []
+        anti_hermitian_positions: list[int | None] = []
+        for observable in observables_list:
+            hermitian_part, anti_hermitian_part = hermitian_decomposition(observable)
+            hermitian_parts.append(hermitian_part)
+            if anti_hermitian_part is None:
+                anti_hermitian_positions.append(None)
+            else:
+                anti_hermitian_positions.append(len(observables_list) + len(anti_hermitian_parts))
+                anti_hermitian_parts.append(anti_hermitian_part)
+        all_observables = hermitian_parts + anti_hermitian_parts
 
-        metadata = estimator_result.metadata
+        purged_observables, mask = _handle_zero_ops(all_observables)
+        parameter_values_: Sequence[float] | None = parameter_values
+        if purged_observables:
+            try:
+                estimator_job = estimator.run(
+                    [(quantum_state, purged_observables, parameter_values_)]
+                )
+                estimator_result = estimator_job.result()[0]
+                expectation_values = estimator_result.data.evs
+            except Exception as exc:
+                raise AlgorithmError("The primitive job failed!") from exc
+            metadata = estimator_result.metadata
+        else:
+            expectation_values = np.array([])
+            metadata = {}
+
         # Discard values below threshold
         observables_means = expectation_values * (np.abs(expectation_values) > threshold)
         # Adding back the values from the nil observables
-        all_means = []
+        split_means = []
         index = 0
         for mask_value in mask:
             # Non-zero observable
             if mask_value:
-                all_means.append(observables_means[index])
+                split_means.append(observables_means[index])
                 index += 1
             else:
-                all_means.append(0.0)
+                split_means.append(0.0)
+        # recombine the Hermitian and anti-Hermitian parts; only the expectation values of
+        # non-Hermitian observables are complex
+        all_means = [
+            (
+                np.float64(np.real(split_means[i]))
+                if position is None
+                else np.complex128(split_means[i] + 1j * split_means[position])
+            )
+            for i, position in enumerate(anti_hermitian_positions)
+        ]
         # zip means and metadata into tuples
-        observables_results = list(zip(np.array(all_means), [metadata] * len(all_means)))
+        observables_results = list(zip(all_means, [metadata] * len(all_means)))
     else:
         observables_results = []
 

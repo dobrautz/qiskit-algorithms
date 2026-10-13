@@ -20,13 +20,19 @@ import numpy as np
 from qiskit import QuantumCircuit, generate_preset_pass_manager
 from qiskit.circuit import Parameter
 from qiskit.primitives import StatevectorEstimator
-from qiskit.quantum_info import SparsePauliOp, Pauli
-from qiskit.circuit.library import efficient_su2
+from qiskit.quantum_info import Operator, SparsePauliOp, Pauli
+from qiskit.circuit.library import efficient_su2, real_amplitudes
 from qiskit.quantum_info import Statevector
 from qiskit.providers.fake_provider import GenericBackendV2
 
-from qiskit_algorithms.gradients import LinCombQGT, LinCombEstimatorGradient
-from qiskit_algorithms import TimeEvolutionProblem, VarQITE
+from qiskit_algorithms.gradients import (
+    LinCombQGT,
+    LinCombEstimatorGradient,
+    ParamShiftEstimatorGradient,
+    ReverseEstimatorGradient,
+    ReverseQGT,
+)
+from qiskit_algorithms import AlgorithmError, TimeEvolutionProblem, VarQITE
 from qiskit_algorithms.time_evolvers.variational import ImaginaryMcLachlanPrinciple
 from qiskit_algorithms.utils import algorithm_globals
 
@@ -376,6 +382,63 @@ class TestVarQITE(QiskitAlgorithmsTestCase):
         var_qite.evolve(evolution_problem)
 
         self.assertGreater(counts[0], 0)
+
+    def test_non_hermitian(self):
+        """Test VarQITE for a non-Hermitian Hamiltonian with a real spectrum.
+
+        The normalized imaginary-time evolution converges to the right eigenvector belonging to the
+        eigenvalue with the lowest real part, which differs from the left eigenvector.
+        """
+        rng = np.random.default_rng(42)
+        similarity = np.eye(4) + 0.4 * rng.normal(size=(4, 4))
+        eigenvalues = np.array([-1.3, -0.4, 0.5, 1.1])
+        matrix = similarity @ np.diag(eigenvalues) @ np.linalg.inv(similarity)
+        hamiltonian = SparsePauliOp.from_operator(Operator(matrix))
+
+        right_eigenvector = similarity[:, 0] / np.linalg.norm(similarity[:, 0])
+        left_eigenvector = np.linalg.inv(similarity)[0]
+        left_eigenvector /= np.linalg.norm(left_eigenvector)
+
+        ansatz = real_amplitudes(2, reps=3)
+        init_param_values = rng.uniform(-0.3, 0.3, ansatz.num_parameters)
+        evolution_problem = TimeEvolutionProblem(hamiltonian, 8.0, aux_operators=[hamiltonian])
+
+        for name, var_principle in (
+            ("lin_comb", ImaginaryMcLachlanPrinciple()),
+            ("reverse", ImaginaryMcLachlanPrinciple(ReverseQGT(), ReverseEstimatorGradient())),
+        ):
+            with self.subTest(name):
+                var_qite = VarQITE(
+                    ansatz,
+                    init_param_values,
+                    var_principle,
+                    StatevectorEstimator(),
+                    ode_solver="RK45",
+                )
+                result = var_qite.evolve(evolution_problem)
+                state = Statevector(result.evolved_state).data
+
+                np.testing.assert_allclose(
+                    abs(np.vdot(right_eigenvector, state)) ** 2, 1.0, atol=1e-5
+                )
+                self.assertLess(abs(np.vdot(left_eigenvector, state)) ** 2, 0.1)
+                energy = result.aux_ops_evaluated[0][0]
+                np.testing.assert_allclose(energy, np.vdot(state, matrix @ state), atol=1e-10)
+                np.testing.assert_allclose(energy, eigenvalues[0], atol=1e-3)
+
+    def test_failing_gradient_raises(self):
+        """Test that errors in the evolution are raised instead of silently returning the initial
+        state when the forward Euler solver is used."""
+        hamiltonian = SparsePauliOp(["XY", "ZI"], [0.5, 1j])  # non-Hermitian
+        ansatz = efficient_su2(2, reps=1)
+        var_principle = ImaginaryMcLachlanPrinciple(
+            gradient=ParamShiftEstimatorGradient(StatevectorEstimator())
+        )
+        var_qite = VarQITE(
+            ansatz, np.zeros(ansatz.num_parameters), var_principle, StatevectorEstimator()
+        )
+        with self.assertRaises(AlgorithmError):
+            var_qite.evolve(TimeEvolutionProblem(hamiltonian, 0.1))
 
 
 if __name__ == "__main__":

@@ -93,6 +93,27 @@ class TestNumPyEigensolver(QiskitAlgorithmsTestCase):
         self.assertEqual(len(result.eigenvalues), 0)
         self.assertEqual(len(result.eigenstates), 0)
 
+    def test_non_hermitian_filtered(self):
+        """Test that non-Hermitian operators are diagonalized correctly when a filter is set, which
+        uses the dense solver."""
+        rng = np.random.default_rng(5)
+        similarity = np.eye(4) + 0.4 * rng.normal(size=(4, 4))
+        eigenvalues = np.array([-1.3, -0.4, 0.5, 1.1])
+        matrix = similarity @ np.diag(eigenvalues) @ np.linalg.inv(similarity)
+        operator = SparsePauliOp.from_operator(Operator(matrix))
+
+        # pylint: disable=unused-argument
+        def criterion(x, v, a_v):
+            return np.real(v) >= -1
+
+        algo = NumPyEigensolver(k=2, filter_criterion=criterion)
+        result = algo.compute_eigenvalues(operator=operator)
+        np.testing.assert_array_almost_equal(result.eigenvalues, eigenvalues[1:3])
+        for eigenvalue, eigenstate in zip(result.eigenvalues, result.eigenstates):
+            np.testing.assert_array_almost_equal(
+                matrix @ eigenstate.data, eigenvalue * eigenstate.data
+            )
+
     @data(
         SparsePauliOp(["X"], coeffs=[1.0]),
         SparsePauliOp(["Y"], coeffs=[1.0]),

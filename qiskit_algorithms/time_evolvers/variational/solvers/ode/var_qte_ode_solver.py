@@ -20,6 +20,7 @@ from functools import partial
 import numpy as np
 from scipy.integrate import OdeSolver, solve_ivp
 
+from .....exceptions import AlgorithmError
 from .abstract_ode_function import AbstractOdeFunction
 from .forward_euler_solver import ForwardEulerSolver
 
@@ -62,6 +63,9 @@ class VarQTEOdeSolver:
 
         Returns:
             List of parameters found by an ODE solver for a given ODE function callable.
+
+        Raises:
+            AlgorithmError: If the ODE solver does not succeed.
         """
         # determine the number of timesteps and set the timestep
         num_timesteps = (
@@ -81,6 +85,9 @@ class VarQTEOdeSolver:
             self._init_params,
             method=self._ode_solver,
         )
+
+        if not sol.success:
+            raise AlgorithmError(f"The ODE solver failed: {sol.message}")
 
         param_vals = sol.y.T
         time_points = sol.t

@@ -61,14 +61,14 @@ class ForwardEulerSolver(OdeSolver):
     def _step_impl(self):
         """
         Takes an Euler step.
+
+        Errors raised while evaluating the right-hand side are propagated, consistent with the
+        other SciPy ODE solvers.
         """
-        try:
-            self._y_old = self.y
-            self.y = list(np.add(self.y, self._step_length * self.fun(self.t, self.y)))
-            self.t += self._step_length
-            return True, None
-        except Exception as ex:  # pylint: disable=broad-except
-            return False, f"Unknown ODE solver error: {str(ex)}."
+        self._y_old = self.y
+        self.y = list(np.add(self.y, self._step_length * self.fun(self.t, self.y)))
+        self.t += self._step_length
+        return True, None
 
     def _dense_output_impl(self):
         return ConstantDenseOutput(self.t_old, self.t, self._y_old)

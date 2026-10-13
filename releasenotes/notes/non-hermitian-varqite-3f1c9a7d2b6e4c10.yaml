@@ -1,0 +1,50 @@
+---
+features:
+  - |
+    :class:`.ImaginaryMcLachlanPrinciple`, and hence :class:`.VarQITE`, now supports
+    non-Hermitian Hamiltonians, such as the transcorrelated Hamiltonians of electronic structure
+    theory. A Hamiltonian is detected as non-Hermitian if its simplified Pauli representation has
+    complex coefficients. It is then split into :math:`H = A + iB` with Hermitian :math:`A` and
+    :math:`B`, so that only Hermitian observables are passed to the estimator primitives. The
+    normalized imaginary-time evolution converges to the right eigenvector of :math:`H` whose
+    eigenvalue has the lowest real part. This requires a gradient that supports
+    ``DerivativeType.IMAG``, i.e., :class:`.LinCombEstimatorGradient` (the default) or
+    :class:`.ReverseEstimatorGradient`::
+
+        import numpy as np
+        from qiskit.circuit.library import real_amplitudes
+        from qiskit.primitives import StatevectorEstimator
+        from qiskit.quantum_info import SparsePauliOp
+        from qiskit_algorithms import TimeEvolutionProblem, VarQITE
+
+        hamiltonian = SparsePauliOp(["ZI", "IZ", "XX", "YX"], [-1.0, -0.5, 0.3, 0.2j])
+        ansatz = real_amplitudes(2, reps=2)
+        var_qite = VarQITE(
+            ansatz, np.zeros(ansatz.num_parameters), estimator=StatevectorEstimator()
+        )
+        result = var_qite.evolve(
+            TimeEvolutionProblem(hamiltonian, 5.0, aux_operators=[hamiltonian])
+        )
+        energy = result.aux_ops_evaluated[0][0]  # complex for non-Hermitian operators
+  - |
+    Added :func:`.hermitian_decomposition` and :func:`.is_hermitian_operator` to
+    :mod:`qiskit_algorithms.utils`, which split an operator into its Hermitian and
+    anti-Hermitian parts and check whether an operator is Hermitian, respectively.
+  - |
+    :func:`.estimate_observables`, which is used to evaluate auxiliary operators throughout the
+    library, now supports non-Hermitian observables. Their (complex) expectation values are
+    computed from the expectation values of their Hermitian and anti-Hermitian parts.
+fixes:
+  - |
+    Restored the ``qiskit_algorithms.list_or_dict`` module, from which downstream packages such as
+    Qiskit Nature import the ``ListOrDict`` type, as an alias of its new location.
+  - |
+    The :class:`.ForwardEulerSolver` no longer silently discards errors raised during the
+    evolution, and :class:`.VarQTE` now raises an :class:`.AlgorithmError` if the ODE solver does
+    not succeed. Previously, :class:`.VarQITE` and :class:`.VarQRTE` returned the initial state
+    as the evolved state without any error if, for example, the gradient computation failed.
+  - |
+    Fixed the hermiticity check of the dense solver used by :class:`.NumPyEigensolver` (and
+    :class:`.NumPyMinimumEigensolver`), e.g., when a filter criterion is set. Previously, the
+    eigenvalues of non-Hermitian operators were computed with ``numpy.linalg.eigh``, which
+    silently returned wrong results.

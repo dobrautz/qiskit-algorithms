@@ -1,6 +1,6 @@
 # This code is part of a Qiskit project.
 #
-# (C) Copyright IBM 2022, 2023.
+# (C) Copyright IBM 2022, 2026.
 #
 # This code is licensed under the Apache License, Version 2.0. You may
 # obtain a copy of this license in the LICENSE.txt file in the root directory
@@ -15,9 +15,12 @@
 from .algorithm_globals import algorithm_globals
 from .validate_initial_point import validate_initial_point
 from .validate_bounds import validate_bounds
+from .hermitian_decomposition import hermitian_decomposition, is_hermitian_operator
 
 __all__ = [
     "algorithm_globals",
     "validate_initial_point",
     "validate_bounds",
+    "hermitian_decomposition",
+    "is_hermitian_operator",
 ]
