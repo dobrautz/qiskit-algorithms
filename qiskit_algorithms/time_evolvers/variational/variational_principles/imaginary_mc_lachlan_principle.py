@@ -114,6 +114,7 @@ class ImaginaryMcLachlanPrinciple(ImaginaryVariationalPrinciple):
             qgt = LinCombQGT(estimator)
 
         super().__init__(qgt, gradient)
+        self._transpiled_ansatz: dict[int, tuple[QuantumCircuit, QuantumCircuit]] = {}
 
     def evolution_gradient(
         self,
@@ -149,9 +150,16 @@ class ImaginaryMcLachlanPrinciple(ImaginaryVariationalPrinciple):
 
         # non-Hermitian Hamiltonian H = A + iB with Hermitian A and B
         if getattr(self.qgt, "_phase_fix", True):
+            circuit, observable = ansatz, anti_hermitian_part
+            transpiler = getattr(self.gradient, "_transpiler", None)
+            if transpiler is not None:
+                # the estimator may require circuits compiled for its backend, like the gradient
+                circuit = self._transpile(ansatz, transpiler)
+                if circuit.layout is not None:
+                    observable = observable.apply_layout(circuit.layout)
             try:
                 expectation_b = run_estimator_job(
-                    self.gradient._estimator, [(ansatz, anti_hermitian_part, param_values)]
+                    self.gradient._estimator, [(circuit, observable, param_values)]
                 )[0].data.evs
             except Exception as exc:
                 raise AlgorithmError("The estimator primitive job failed!") from exc
@@ -166,6 +174,16 @@ class ImaginaryMcLachlanPrinciple(ImaginaryVariationalPrinciple):
             anti_hermitian_part, ansatz, param_values, gradient_params, DerivativeType.IMAG
         )
         return -0.5 * evolution_grad_lse_rhs
+
+    def _transpile(self, ansatz: QuantumCircuit, transpiler) -> QuantumCircuit:
+        """Transpiles the ansatz with the transpiler of the gradient, caching the result."""
+        key = id(ansatz)
+        cached = self._transpiled_ansatz.get(key)
+        if cached is None or cached[0] is not ansatz:
+            options = getattr(self.gradient, "_transpiler_options", None) or {}
+            cached = (ansatz, transpiler.run(ansatz, **options))
+            self._transpiled_ansatz[key] = cached
+        return cached[1]
 
     def _run_gradient(
         self,

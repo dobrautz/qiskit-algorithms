@@ -27,6 +27,13 @@ features:
         )
         energy = result.aux_ops_evaluated[0][0]  # complex for non-Hermitian operators
   - |
+    For non-Hermitian Hamiltonians, :class:`.ImaginaryMcLachlanPrinciple` transpiles the ansatz
+    with the transpiler of its gradient (if any) before evaluating the expectation value of the
+    anti-Hermitian part, such that it can be used with estimators which require circuits compiled
+    for their backend, such as those of Qiskit Aer and Qiskit IBM Runtime. Note that such a
+    transpiler must not fix the initial layout, since the gradient circuits contain an additional
+    ancilla qubit.
+  - |
     Added :func:`.hermitian_decomposition` and :func:`.is_hermitian_operator` to
     :mod:`qiskit_algorithms.utils`, which split an operator into its Hermitian and
     anti-Hermitian parts and check whether an operator is Hermitian, respectively.

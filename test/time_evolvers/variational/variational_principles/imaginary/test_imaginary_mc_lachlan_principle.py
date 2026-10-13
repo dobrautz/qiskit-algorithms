@@ -16,8 +16,11 @@ import unittest
 
 import numpy as np
 from ddt import ddt, data
+from qiskit import generate_preset_pass_manager
+from qiskit.providers.fake_provider import GenericBackendV2
+from qiskit.circuit import Parameter
+from qiskit.circuit.library import PauliEvolutionGate, efficient_su2
 from qiskit.quantum_info import Operator, SparsePauliOp, Statevector
-from qiskit.circuit.library import efficient_su2
 from qiskit.primitives import StatevectorEstimator
 
 from qiskit_algorithms import AlgorithmError
@@ -179,6 +182,39 @@ class TestImaginaryMcLachlanPrinciple(QiskitAlgorithmsTestCase):
                 np.testing.assert_allclose(evolution_gradient, expected, atol=1e-7)
                 # the derivative type of the gradient is restored
                 self.assertEqual(var_principle.gradient.derivative_type, DerivativeType.REAL)
+
+    def test_non_hermitian_with_transpiler(self):
+        """Test the evolution gradient of a non-Hermitian Hamiltonian when the circuits are
+        transpiled for a backend with a non-trivial layout. Note that the transpiler may not fix
+        the layout since the gradient circuits contain an additional ancilla qubit."""
+        try:
+            from qiskit_aer.primitives import EstimatorV2 as AerEstimator
+        except ImportError:
+            self.skipTest("qiskit-aer is not available")
+
+        matrix = _non_hermitian_operator()
+        hamiltonian = SparsePauliOp.from_operator(Operator(matrix))
+        # a PauliEvolutionGate cannot be executed by the Aer estimator without transpilation
+        theta = Parameter("theta")
+        ansatz = efficient_su2(2, reps=1)
+        ansatz.append(PauliEvolutionGate(SparsePauliOp(["XY", "YX"], [0.5, -0.5]), theta), [0, 1])
+        param_values = np.random.default_rng(4).uniform(-1, 1, ansatz.num_parameters)
+
+        backend = GenericBackendV2(num_qubits=4, coupling_map=[[0, 3], [3, 2], [2, 1]], seed=3)
+        pass_manager = generate_preset_pass_manager(
+            backend=backend, optimization_level=1, seed_transpiler=5
+        )
+        # the circuits are not placed on the physical qubits [0, 1]
+        self.assertNotEqual(pass_manager.run(ansatz).layout.final_index_layout(), [0, 1])
+
+        estimator = AerEstimator()
+        var_principle = ImaginaryMcLachlanPrinciple(
+            LinCombQGT(estimator, transpiler=pass_manager),
+            LinCombEstimatorGradient(estimator, transpiler=pass_manager),
+        )
+        evolution_gradient = var_principle.evolution_gradient(hamiltonian, ansatz, param_values)
+        expected = _exact_evolution_gradient(matrix, ansatz, param_values)
+        np.testing.assert_allclose(evolution_gradient, expected, atol=1e-7)
 
     def test_non_hermitian_requires_imaginary_gradient(self):
         """Test that a gradient without support for the imaginary part raises for non-Hermitian
