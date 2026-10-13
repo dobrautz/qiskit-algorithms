@@ -39,6 +39,11 @@ fixes:
     Restored the ``qiskit_algorithms.list_or_dict`` module, from which downstream packages such as
     Qiskit Nature import the ``ListOrDict`` type, as an alias of its new location.
   - |
+    Fixed the evaluation of expectation values with estimators which do not expose a
+    ``default_precision`` attribute, such as the ``EstimatorV2`` of Qiskit Aer, which holds it in
+    its options. Previously, all gradients, quantum geometric tensors and time evolutions failed
+    with these estimators.
+  - |
     The :class:`.ForwardEulerSolver` no longer silently discards errors raised during the
     evolution, and :class:`.VarQTE` now raises an :class:`.AlgorithmError` if the ODE solver does
     not succeed. Previously, :class:`.VarQITE` and :class:`.VarQRTE` returned the initial state
