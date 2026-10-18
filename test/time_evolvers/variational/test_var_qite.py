@@ -16,6 +16,7 @@ import unittest
 from test import QiskitAlgorithmsTestCase
 from ddt import ddt
 import numpy as np
+from scipy.integrate import OdeSolver
 
 from qiskit import QuantumCircuit, generate_preset_pass_manager
 from qiskit.circuit import Parameter
@@ -439,6 +440,34 @@ class TestVarQITE(QiskitAlgorithmsTestCase):
         )
         with self.assertRaises(AlgorithmError):
             var_qite.evolve(TimeEvolutionProblem(hamiltonian, 0.1))
+
+    def test_unsuccessful_ode_solver_raises(self):
+        """Test that an ODE solver which reports a failure without raising leads to an error
+        instead of a silently truncated evolution."""
+
+        class FailingSolver(OdeSolver):
+            """An ODE solver whose steps fail."""
+
+            # pylint: disable=too-few-public-methods
+            def __init__(self, fun, t0, y0, t_bound, vectorized=False, **kwargs):
+                super().__init__(fun, t0, y0, t_bound, vectorized, support_complex=False)
+
+            def _step_impl(self):
+                return False, "intentional failure"
+
+            def _dense_output_impl(self):
+                raise NotImplementedError
+
+        ansatz = efficient_su2(2, reps=1)
+        var_qite = VarQITE(
+            ansatz,
+            np.zeros(ansatz.num_parameters),
+            ImaginaryMcLachlanPrinciple(),
+            StatevectorEstimator(),
+            ode_solver=FailingSolver,
+        )
+        with self.assertRaisesRegex(AlgorithmError, "intentional failure"):
+            var_qite.evolve(TimeEvolutionProblem(SparsePauliOp(["ZZ", "XI"], [1.0, 0.5]), 0.1))
 
 
 if __name__ == "__main__":
