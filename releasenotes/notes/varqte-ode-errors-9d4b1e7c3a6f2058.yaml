@@ -1,0 +1,7 @@
+---
+fixes:
+  - |
+    The :class:`.ForwardEulerSolver` no longer silently discards errors raised during the
+    evolution, and :class:`.VarQTE` now raises an :class:`.AlgorithmError` if the ODE solver does
+    not succeed. Previously, :class:`.VarQITE` and :class:`.VarQRTE` returned the initial state
+    as the evolved state without any error if, for example, the gradient computation failed.

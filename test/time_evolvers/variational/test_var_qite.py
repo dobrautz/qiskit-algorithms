@@ -25,8 +25,12 @@ from qiskit.circuit.library import efficient_su2
 from qiskit.quantum_info import Statevector
 from qiskit.providers.fake_provider import GenericBackendV2
 
-from qiskit_algorithms.gradients import LinCombQGT, LinCombEstimatorGradient
-from qiskit_algorithms import TimeEvolutionProblem, VarQITE
+from qiskit_algorithms.gradients import (
+    LinCombQGT,
+    LinCombEstimatorGradient,
+    ParamShiftEstimatorGradient,
+)
+from qiskit_algorithms import AlgorithmError, TimeEvolutionProblem, VarQITE
 from qiskit_algorithms.time_evolvers.variational import ImaginaryMcLachlanPrinciple
 from qiskit_algorithms.utils import algorithm_globals
 
@@ -376,6 +380,20 @@ class TestVarQITE(QiskitAlgorithmsTestCase):
         var_qite.evolve(evolution_problem)
 
         self.assertGreater(counts[0], 0)
+
+    def test_failing_gradient_raises(self):
+        """Test that errors in the evolution are raised instead of silently returning the initial
+        state when the forward Euler solver is used."""
+        hamiltonian = SparsePauliOp(["XY", "ZI"], [0.5, 1j])  # non-Hermitian
+        ansatz = efficient_su2(2, reps=1)
+        var_principle = ImaginaryMcLachlanPrinciple(
+            gradient=ParamShiftEstimatorGradient(StatevectorEstimator())
+        )
+        var_qite = VarQITE(
+            ansatz, np.zeros(ansatz.num_parameters), var_principle, StatevectorEstimator()
+        )
+        with self.assertRaises(AlgorithmError):
+            var_qite.evolve(TimeEvolutionProblem(hamiltonian, 0.1))
 
 
 if __name__ == "__main__":
