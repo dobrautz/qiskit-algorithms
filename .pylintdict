@@ -2,6 +2,7 @@ adam
 ae
 aer
 al
+alavi
 algo
 algorithmerror
 allclose
@@ -63,6 +64,7 @@ dicts
 diederik
 dimensionality
 disp
+dobrautz
 dobsicek
 docstring
 doi
@@ -140,6 +142,7 @@ hamiltonians
 hatano
 havlíček
 heidelberg
+hermiticity
 hessians
 hilbert
 hopkins
@@ -190,6 +193,7 @@ lov
 lr
 lsb
 lse
+luo
 magnus
 marecek
 masuo
@@ -329,6 +333,7 @@ shanno
 skquant
 sle
 slsqp
+sokolov
 soloviev
 spall
 spedalieri
@@ -360,6 +365,7 @@ tavernelli
 temme
 terhal
 terra
+tew
 th
 timestep
 timesteps
@@ -368,11 +374,13 @@ toctree
 todo
 tol
 trainability
+transcorrelated
 transpilation
 transpile
 transpiled
 transpiler
 transpiler's
+transpiles
 transpiling
 trotterization
 trotterized

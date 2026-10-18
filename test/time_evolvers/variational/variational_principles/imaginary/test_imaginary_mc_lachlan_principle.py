@@ -15,11 +15,23 @@
 import unittest
 
 import numpy as np
-from qiskit.quantum_info import SparsePauliOp
-from qiskit.circuit.library import efficient_su2
+from ddt import ddt, data
+from qiskit import generate_preset_pass_manager
+from qiskit.providers.fake_provider import GenericBackendV2
+from qiskit.circuit import Parameter
+from qiskit.circuit.library import PauliEvolutionGate, efficient_su2
+from qiskit.quantum_info import Operator, SparsePauliOp, Statevector
 from qiskit.primitives import StatevectorEstimator
 
-from qiskit_algorithms.gradients import LinCombEstimatorGradient, DerivativeType
+from qiskit_algorithms import AlgorithmError
+from qiskit_algorithms.gradients import (
+    DerivativeType,
+    LinCombEstimatorGradient,
+    LinCombQGT,
+    ParamShiftEstimatorGradient,
+    ReverseEstimatorGradient,
+    ReverseQGT,
+)
 from qiskit_algorithms.time_evolvers.variational import (
     ImaginaryMcLachlanPrinciple,
 )
@@ -32,6 +44,35 @@ from test.time_evolvers.variational.variational_principles.expected_results.\
 from test import QiskitAlgorithmsTestCase  # pylint: disable=wrong-import-order
 
 
+def _non_hermitian_operator(seed: int = 7) -> np.ndarray:
+    """Returns a real, non-Hermitian 2-qubit matrix with a real spectrum."""
+    rng = np.random.default_rng(seed)
+    similarity = np.eye(4) + 0.4 * rng.normal(size=(4, 4))
+    return similarity @ np.diag([-1.3, -0.4, 0.5, 1.1]) @ np.linalg.inv(similarity)
+
+
+def _exact_evolution_gradient(matrix, ansatz, param_values, phase_fix=True, eps=1e-6):
+    """The McLachlan right-hand side -Re[<d_i psi|H|psi> - <d_i psi|psi><H>] by finite
+    differences."""
+
+    def state(values):
+        return Statevector(ansatz.assign_parameters(values)).data
+
+    psi = state(param_values)
+    energy = psi.conj() @ matrix @ psi
+    rhs = []
+    for i in range(len(param_values)):
+        shift = np.zeros(len(param_values))
+        shift[i] = eps
+        d_psi = (state(param_values + shift) - state(param_values - shift)) / (2 * eps)
+        value = d_psi.conj() @ matrix @ psi
+        if phase_fix:
+            value -= (d_psi.conj() @ psi) * energy
+        rhs.append(-np.real(value))
+    return np.array(rhs)
+
+
+@ddt
 class TestImaginaryMcLachlanPrinciple(QiskitAlgorithmsTestCase):
     """Test imaginary McLachlan's variational principle."""
 
@@ -111,6 +152,80 @@ class TestImaginaryMcLachlanPrinciple(QiskitAlgorithmsTestCase):
             var_principle = ImaginaryMcLachlanPrinciple(gradient=gradient)
 
         np.testing.assert_equal(var_principle.gradient._derivative_type, DerivativeType.REAL)
+
+    @data("lin_comb", "reverse")
+    def test_non_hermitian_evolution_gradient(self, method):
+        """Test the evolution gradient of a non-Hermitian Hamiltonian against the exact one."""
+        matrix = _non_hermitian_operator()
+        hamiltonian = SparsePauliOp.from_operator(Operator(matrix))
+        self.assertTrue(np.iscomplexobj(np.real_if_close(hamiltonian.simplify().coeffs)))
+
+        ansatz = efficient_su2(2, reps=1)
+        param_values = np.random.default_rng(3).uniform(-1, 1, ansatz.num_parameters)
+
+        for phase_fix in (True, False):
+            with self.subTest(phase_fix=phase_fix):
+                if method == "lin_comb":
+                    estimator = StatevectorEstimator()
+                    var_principle = ImaginaryMcLachlanPrinciple(
+                        LinCombQGT(estimator, phase_fix=phase_fix),
+                        LinCombEstimatorGradient(estimator),
+                    )
+                else:
+                    var_principle = ImaginaryMcLachlanPrinciple(
+                        ReverseQGT(phase_fix=phase_fix), ReverseEstimatorGradient()
+                    )
+                evolution_gradient = var_principle.evolution_gradient(
+                    hamiltonian, ansatz, param_values
+                )
+                expected = _exact_evolution_gradient(matrix, ansatz, param_values, phase_fix)
+                np.testing.assert_allclose(evolution_gradient, expected, atol=1e-7)
+                # the derivative type of the gradient is restored
+                self.assertEqual(var_principle.gradient.derivative_type, DerivativeType.REAL)
+
+    def test_non_hermitian_with_transpiler(self):
+        """Test the evolution gradient of a non-Hermitian Hamiltonian when the circuits are
+        transpiled for a backend with a non-trivial layout. Note that the transpiler may not fix
+        the layout since the gradient circuits contain an additional ancilla qubit."""
+        try:
+            from qiskit_aer.primitives import EstimatorV2 as AerEstimator
+        except ImportError:
+            self.skipTest("qiskit-aer is not available")
+
+        matrix = _non_hermitian_operator()
+        hamiltonian = SparsePauliOp.from_operator(Operator(matrix))
+        # a PauliEvolutionGate cannot be executed by the Aer estimator without transpilation
+        theta = Parameter("theta")
+        ansatz = efficient_su2(2, reps=1)
+        ansatz.append(PauliEvolutionGate(SparsePauliOp(["XY", "YX"], [0.5, -0.5]), theta), [0, 1])
+        param_values = np.random.default_rng(4).uniform(-1, 1, ansatz.num_parameters)
+
+        backend = GenericBackendV2(num_qubits=4, coupling_map=[[0, 3], [3, 2], [2, 1]], seed=3)
+        pass_manager = generate_preset_pass_manager(
+            backend=backend, optimization_level=1, seed_transpiler=5
+        )
+        # the circuits are not placed on the physical qubits [0, 1]
+        self.assertNotEqual(pass_manager.run(ansatz).layout.final_index_layout(), [0, 1])
+
+        estimator = AerEstimator()
+        var_principle = ImaginaryMcLachlanPrinciple(
+            LinCombQGT(estimator, transpiler=pass_manager),
+            LinCombEstimatorGradient(estimator, transpiler=pass_manager),
+        )
+        evolution_gradient = var_principle.evolution_gradient(hamiltonian, ansatz, param_values)
+        expected = _exact_evolution_gradient(matrix, ansatz, param_values)
+        np.testing.assert_allclose(evolution_gradient, expected, atol=1e-7)
+
+    def test_non_hermitian_requires_imaginary_gradient(self):
+        """Test that a gradient without support for the imaginary part raises for non-Hermitian
+        Hamiltonians."""
+        hamiltonian = SparsePauliOp.from_operator(Operator(_non_hermitian_operator()))
+        ansatz = efficient_su2(2, reps=1)
+        var_principle = ImaginaryMcLachlanPrinciple(
+            gradient=ParamShiftEstimatorGradient(StatevectorEstimator())
+        )
+        with self.assertRaises(AlgorithmError):
+            var_principle.evolution_gradient(hamiltonian, ansatz, np.zeros(ansatz.num_parameters))
 
 
 if __name__ == "__main__":
