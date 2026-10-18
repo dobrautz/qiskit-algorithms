@@ -1,0 +1,7 @@
+---
+fixes:
+  - |
+    Fixed the evaluation of expectation values with estimators which do not expose a
+    ``default_precision`` attribute, such as the ``EstimatorV2`` of Qiskit Aer, which holds it in
+    its options. Previously, all gradients, quantum geometric tensors and time evolutions failed
+    with these estimators.

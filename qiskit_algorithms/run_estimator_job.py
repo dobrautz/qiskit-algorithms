@@ -1,6 +1,6 @@
 # This code is part of a Qiskit project.
 #
-# (C) Copyright IBM 2025.
+# (C) Copyright IBM 2025, 2026.
 #
 # This code is licensed under the Apache License, Version 2.0. You may
 # obtain a copy of this license in the LICENSE.txt file in the root directory
@@ -11,6 +11,8 @@
 # that they have been altered from the originals.
 
 """Utility function to run Estimator jobs."""
+
+from __future__ import annotations
 
 from collections.abc import Iterable
 
@@ -88,7 +90,7 @@ def run_estimator_job(
                     data=DataBin(evs=np.zeros(shape=result_shape), shape=result_shape),
                     metadata={
                         "target_precision": (
-                            estimator.default_precision
+                            _default_precision(estimator)
                             if len(pub) <= 3 or pub[3] is None
                             else pub[3]
                         ),
@@ -131,7 +133,7 @@ def run_estimator_job(
                 data=DataBin(evs=evs, shape=evs.shape),
                 metadata={
                     "target_precision": (
-                        estimator.default_precision if len(pub) <= 3 or pub[3] is None else pub[3]
+                        _default_precision(estimator) if len(pub) <= 3 or pub[3] is None else pub[3]
                     ),
                     "circuit_metadata": pub[0].metadata,
                 },
@@ -139,3 +141,15 @@ def run_estimator_job(
         )
 
     return PrimitiveResult(pub_results, metadata={"version": 2})
+
+
+def _default_precision(estimator: BaseEstimatorV2) -> float | None:
+    """Returns the default precision of an estimator.
+
+    The reference implementations in Qiskit expose it as an attribute, whereas others, such as the
+    estimator of Qiskit Aer, hold it in their options.
+    """
+    precision = getattr(estimator, "default_precision", None)
+    if precision is None:
+        precision = getattr(getattr(estimator, "options", None), "default_precision", None)
+    return precision
