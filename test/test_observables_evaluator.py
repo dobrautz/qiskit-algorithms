@@ -45,6 +45,21 @@ class TestObservablesEvaluator(QiskitAlgorithmsTestCase):
                 np.testing.assert_allclose(value, expected, atol=1e-12)
         self.assertIsInstance(result["hermitian"][0], float)
 
+    def test_only_zero_observables(self):
+        """Test that zero observables are evaluated without running the estimator."""
+
+        class FailingEstimator(StatevectorEstimator):
+            """An estimator which must not be run."""
+
+            def run(self, pubs, *, precision=None):
+                raise AssertionError("the estimator was run")
+
+        ansatz = efficient_su2(2, reps=1)
+        values = np.zeros(ansatz.num_parameters)
+        zero = SparsePauliOp(["XX", "ZZ"], [0.0, 0.0])
+        results = estimate_observables(FailingEstimator(), ansatz, [zero, zero], values)
+        self.assertEqual([value for value, _ in results], [0.0, 0.0])
+
 
 if __name__ == "__main__":
     unittest.main()
