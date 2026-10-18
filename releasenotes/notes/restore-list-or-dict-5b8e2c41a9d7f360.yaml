@@ -1,0 +1,5 @@
+---
+fixes:
+  - |
+    Restored the ``qiskit_algorithms.list_or_dict`` module, from which downstream packages such as
+    Qiskit Nature import the ``ListOrDict`` type, as an alias of its new location.
