@@ -449,7 +449,7 @@ class TestVarQITE(QiskitAlgorithmsTestCase):
             """An ODE solver whose steps fail."""
 
             # pylint: disable=too-few-public-methods
-            def __init__(self, fun, t0, y0, t_bound, vectorized=False, **kwargs):
+            def __init__(self, fun, t0, y0, t_bound, vectorized=False, **_kwargs):
                 super().__init__(fun, t0, y0, t_bound, vectorized, support_complex=False)
 
             def _step_impl(self):

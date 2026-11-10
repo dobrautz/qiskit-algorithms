@@ -1,0 +1,7 @@
+---
+fixes:
+  - |
+    Fixed the hermiticity check of the dense solver used by :class:`.NumPyEigensolver` (and
+    :class:`.NumPyMinimumEigensolver`), e.g., when a filter criterion is set. Previously, the
+    eigenvalues of non-Hermitian operators were computed with ``numpy.linalg.eigh``, which
+    silently returned wrong results.
